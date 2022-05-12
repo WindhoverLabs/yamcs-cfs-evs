@@ -82,16 +82,13 @@ public class CcsdsPacketInputStream implements PacketInputStream {
       switch (parserState) {
         case WAITING_FOR_BYTE_1:
           {
-            System.out.println("1 ****");
             /* Read one byte only. */
             dataInputStream.readFully(hdr, 0, 1);
 
-            System.out.println(hdr[0]);
             /* Check the version ID. */
             if ((hdr[0] & 0xe0) != 0) {
               /* The version ID must be 0. The stream is out of
                * sync so remain in this state. */
-              System.out.println("1.1 ****");
               break;
             }
 
@@ -102,7 +99,6 @@ public class CcsdsPacketInputStream implements PacketInputStream {
                 /* The downlink should contain telemetry only.
                  * The stream is out of sync so remain in this
                  * state. */
-                System.out.println("1.2 ****");
                 break;
               }
             }
@@ -114,7 +110,6 @@ public class CcsdsPacketInputStream implements PacketInputStream {
                 /* The secondary header is required but is not
                  * present.  The stream is out of sync so remain
                  * in this state. */
-                System.out.println("1.3 ****");
                 break;
               }
             }
@@ -127,7 +122,6 @@ public class CcsdsPacketInputStream implements PacketInputStream {
 
         case WAITING_FOR_BYTE_3:
           {
-            System.out.println("2 ****");
             dataInputStream.readFully(hdr, 2, 1);
             /* If the segmentation is not allowed, check the
              * segmentation flags. */
@@ -138,7 +132,6 @@ public class CcsdsPacketInputStream implements PacketInputStream {
                  * The stream is out of sync, so fall back to the
                  * initial state. */
                 parserState = ParserState.WAITING_FOR_BYTE_1;
-                System.out.println("2.1 ****");
                 break;
               }
             }
@@ -170,13 +163,11 @@ public class CcsdsPacketInputStream implements PacketInputStream {
              * so the parser will terminate and return the message.
              */
             parserState = ParserState.MESSAGE_COMPLETE;
-            System.out.println("3 ****");
             break;
           }
       }
     }
 
-    System.out.println("4 ****");
     return packet;
   }
 

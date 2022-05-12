@@ -3,21 +3,24 @@ package com.windhoverlabs.yamcs.cfs.ds;
 import com.google.common.io.BaseEncoding;
 import com.windhoverlabs.yamcs.tctm.CcsdsPacketInputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.WatchEvent;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import org.yamcs.ConfigurationException;
 import org.yamcs.TmPacket;
 import org.yamcs.YConfiguration;
@@ -28,17 +31,25 @@ import org.yamcs.tctm.PacketInputStream;
 import org.yamcs.tctm.PacketTooLongException;
 import org.yamcs.time.TimeService;
 import org.yamcs.utils.YObjectLoader;
+import org.yamcs.yarch.Bucket;
+import org.yamcs.yarch.FileSystemBucket;
+import org.yamcs.yarch.YarchDatabase;
+import org.yamcs.yarch.YarchDatabaseInstance;
 import org.yamcs.yarch.rocksdb.protobuf.Tablespace.ObjectProperties;
 
 public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
   List<BucketContents> buckets;
-  TimeService timeService;
   ScheduledFuture<?> collectionFuture;
   static long frequencyMillisec = 5000;
   static Map<String, CfsDsPlugin> instances = new HashMap<>();
   String packetInputStreamClassName;
   YConfiguration packetInputStreamArgs;
   PacketInputStream packetInputStream;
+  protected long initialDelay;
+  protected long period;
+  protected WatchService watcher;
+  protected List<WatchKey> watchKeys;
+  //protected WatchKey watchKey;
 
   int DS_FILE_HDR_SUBTYPE;
   int DS_TOTAL_FNAME_BUFSIZE;
@@ -51,12 +62,54 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
     super.init(yamcsInstance, serviceName, config);
 
     buckets = new LinkedList<BucketContents>();
+    watchKeys = new LinkedList<WatchKey>();
 
     List<String> bucketNames = config.getList("buckets");
     DS_FILE_HDR_SUBTYPE = config.getInt("DS_FILE_HDR_SUBTYPE", 12345);
     DS_TOTAL_FNAME_BUFSIZE = config.getInt("DS_TOTAL_FNAME_BUFSIZE", 64);
+    this.initialDelay = config.getLong("initialDelay", -1);
+    this.period = config.getLong("period", 5000);
+    
+    try {
+		watcher = FileSystems.getDefault().newWatchService();
+	} catch (IOException e1) {
+		// TODO Auto-generated catch block
+		e1.printStackTrace();
+	}
 
     for (String bucketName : bucketNames) {
+        YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
+
+   	    try {
+   	    	FileSystemBucket bucket = (FileSystemBucket) yarch.getBucket(bucketName);
+
+   	    	System.out.println("Bucket Name = " + bucketName);
+   	    	System.out.println("       Root = " + bucket.getBucketRoot().toString());
+   	    	
+		    Path fullPath = Paths.get(bucket.getBucketRoot().toString()).toAbsolutePath();
+   	    	System.out.println("       Path = " + fullPath);
+            try {
+				WatchKey key = fullPath.register(
+						  watcher,
+						  StandardWatchEventKinds.ENTRY_CREATE,
+						  StandardWatchEventKinds.ENTRY_MODIFY);
+				
+				this.watchKeys.add(key);
+				
+				//watchKeys.add(key);
+			  } catch (IOException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+				break;
+			  }
+		    
+		} catch (IOException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+    	
+    	
+    	
       try {
         buckets.add(new BucketContents(bucketName));
       } catch (IOException e) {
@@ -107,36 +160,100 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
 
   @Override
   protected void doStart() {
-    YamcsServer server = YamcsServer.getServer();
-    timeService = server.getInstance(yamcsInstance).getTimeService();
-    ScheduledThreadPoolExecutor timer = server.getThreadPoolExecutor();
-    collectionFuture =
-        timer.scheduleAtFixedRate(this, 1000L, frequencyMillisec, TimeUnit.MILLISECONDS);
+    if (!isDisabled()) {
+      new Thread(this).start();
+    }
     notifyStarted();
   }
 
   @Override
   protected void doStop() {
-    collectionFuture.cancel(true);
-    synchronized (instances) {
-      instances.remove(yamcsInstance);
-    }
-    try {
-      collectionFuture.get();
-      notifyStopped();
-    } catch (CancellationException e) {
-      notifyStopped();
-    } catch (Exception e) {
-      notifyFailed(e);
-    }
+    //    if (serialPort != null) {
+    //      try {
+    //        serialPort.close();
+    //      } catch (IOException e) {
+    //        log.warn("Exception got when closing the serial port:", e);
+    //      }
+    //      serialPort = null;
+    //    }
+    notifyStopped();
   }
+
+  //  @Override
+  //  protected void doStart() {
+  //    YamcsServer server = YamcsServer.getServer();
+  //    timeService = server.getInstance(yamcsInstance).getTimeService();
+  //    ScheduledThreadPoolExecutor timer = server.getThreadPoolExecutor();
+  //    collectionFuture =
+  //        timer.scheduleAtFixedRate(this, 1000L, frequencyMillisec, TimeUnit.MILLISECONDS);
+  //    notifyStarted();
+  //  }
+
+  //  @Override
+  //  protected void doStop() {
+  //    collectionFuture.cancel(true);
+  //    synchronized (instances) {
+  //      instances.remove(yamcsInstance);
+  //    }
+  //    try {
+  //      collectionFuture.get();
+  //      notifyStopped();
+  //    } catch (CancellationException e) {
+  //      notifyStopped();
+  //    } catch (Exception e) {
+  //      notifyFailed(e);
+  //    }
+  //  }
 
   @Override
   public void run() {
-    for (BucketContents bucket : buckets) {
-      List<ObjectProperties> bucketObjects = bucket.getNewObjects();
-      for (ObjectProperties bucketObject : bucketObjects) {
-        ParseFile(bucket.getRootPath() + "/" + bucketObject.getName());
+    if (initialDelay > 0) {
+      try {
+        Thread.sleep(initialDelay);
+        initialDelay = -1;
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+
+    while (isRunningAndEnabled()) {
+      for(WatchKey watchKey: this.watchKeys) {
+    	  
+        Path dir = (Path)watchKey.watchable();
+        
+        for (WatchEvent<?> evnt: watchKey.pollEvents()) {
+          WatchEvent.Kind<?> kind = evnt.kind();
+          
+          // This key is registered only
+          // for ENTRY_CREATE events,
+          // but an OVERFLOW event can
+          // occur regardless if events
+          // are lost or discarded.
+          if (kind == StandardWatchEventKinds.OVERFLOW) {
+        	  System.out.println("OVERFLOW");
+              continue;
+          }
+          
+          // The filename is the
+          // context of the event.
+          WatchEvent<Path> ev = (WatchEvent<Path>)evnt;
+          Path fullPath = dir.resolve(ev.context());
+          
+          ParseFile(fullPath.toString());
+          
+          // Reset the key -- this step is critical if you want to
+          // receive further watch events.  If the key is no longer valid,
+          // the directory is inaccessible so exit the loop.
+          watchKey.reset();
+        }
+      }
+    
+      try {
+        Thread.sleep(this.period);
+      } catch (InterruptedException e) {
+        // TODO Auto-generated catch block
+        e.printStackTrace();
       }
     }
   }
@@ -231,12 +348,16 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
           fileNameType = (nextWord[0] << 8) + (nextWord[1]);
 
           dataInputStream.read(logFileNameBytes, 0, DS_TOTAL_FNAME_BUFSIZE);
-          description = new String(logFileNameBytes, StandardCharsets.UTF_8);
+          logFileName = new String(logFileNameBytes, StandardCharsets.UTF_8);
 
           log.info(
               "Parsing file "
                   + fileName
+                  + " - "
+                  + logFileName
                   + "."
+                  + "  SubType="
+                  + subType
                   + "  Length="
                   + length
                   + "  SCID="
@@ -263,28 +384,21 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
 
           packetInputStream.init(dataInputStream, packetInputStreamArgs);
 
-          TmPacket pwt = null;
-          System.out.println("1 *******************************");
           while (isRunningAndEnabled()) {
-            System.out.println("2 *******************************");
             TmPacket tmpkt = getNextPacket();
             if (tmpkt == null) {
-              System.out.println("4 *******************************");
               break;
             }
-            System.out.println("3 *******************************");
-            System.out.println(tmpkt.getPacket().length);
-            System.out.println(tmpkt.getPacket()[0]);
-            System.out.println(tmpkt.getPacket()[1]);
-            System.out.println(tmpkt.getPacket()[2]);
-            System.out.println(tmpkt.getPacket()[3]);
-            System.out.println(tmpkt.getPacket()[4]);
-            System.out.println(tmpkt.getPacket()[5]);
-            System.out.println("5 *******************************");
-            // processPacket(tmpkt);
-            System.out.println("6 *******************************");
+
+            String fullMsg = new String();
+
+            fullMsg = tmpkt.getPacket().length + ": ";
+            for (int i = 0; i < tmpkt.getPacket().length; ++i) {
+              fullMsg = fullMsg + String.format("%02X", tmpkt.getPacket()[i]) + " ";
+            }
+            
+            processPacket(tmpkt);
           }
-          System.out.println("7 *******************************");
         }
       }
 
@@ -300,9 +414,11 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
   public TmPacket getNextPacket() {
     TmPacket pwt = null;
     while (isRunningAndEnabled()) {
-      byte[] packet;
       try {
-        packet = packetInputStream.readPacket();
+        byte[] packet = packetInputStream.readPacket();
+        if(packet == null) {
+            break;
+        }
         updateStats(packet.length);
         TmPacket pkt = new TmPacket(timeService.getMissionTime(), packet);
         pkt.setEarthRceptionTime(timeService.getHresMissionTime());
@@ -310,8 +426,12 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
         if (pwt != null) {
           break;
         }
+      } catch (EOFException e) {
+        pwt = null;
+        break;
       } catch (PacketTooLongException | IOException e) {
         // TODO Auto-generated catch block
+        pwt = null;
         e.printStackTrace();
       }
     }
