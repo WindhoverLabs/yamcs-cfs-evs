@@ -1,7 +1,6 @@
 package com.windhoverlabs.yamcs.cfs.ds;
 
 import com.google.common.io.BaseEncoding;
-import com.windhoverlabs.yamcs.tctm.CcsdsPacketInputStream;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.FileInputStream;
@@ -27,6 +26,7 @@ import org.yamcs.ValidationException;
 import org.yamcs.YConfiguration;
 import org.yamcs.YamcsServer;
 import org.yamcs.tctm.AbstractTmDataLink;
+import org.yamcs.tctm.CcsdsPacketInputStream;
 import org.yamcs.tctm.PacketInputStream;
 import org.yamcs.tctm.PacketTooLongException;
 import org.yamcs.tctm.Link.Status;

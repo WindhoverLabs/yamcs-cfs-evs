@@ -40,19 +40,7 @@ services:
       receiverFaultHandlers:
         AckLimitReached: suspend
 
-dataLinks:
-  - name: udp-in
-    class: org.yamcs.tctm.UdpTmDataLink
-    stream: tm_realtime
-    port: 5011
-    packetPreprocessorClassName: com.windhoverlabs.yamcs.tctm.PacketPreprocessor
-
-  - name: udp-out
-    class: org.yamcs.tctm.UdpTcDataLink
-    stream: tc_realtime
-    host: localhost
-    port: 5010
-    
+dataLinks:   
   - name: ds-logs
     class: com.windhoverlabs.yamcs.cfs.ds.CfsDsPlugin
     stream: tm_realtime
