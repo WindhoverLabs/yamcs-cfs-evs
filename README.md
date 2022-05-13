@@ -30,8 +30,8 @@ mvn package -DskipTests
 mvn dependency:copy-dependencies
 ```
 
-The `package` command will output a jar file at `yamcs-cfs/target`.
-Note the `dependency:copy-dependencies` command; this will copy all of the jars to the `yamcs-cfs/target/dependency` directory. Very useful for integrating third-party dependencies.
+The `package` command will output a jar file at `yamcs-cfs-ds/target`.
+Note the `dependency:copy-dependencies` command; this will copy all of the jars to the `yamcs-cfs-ds/target/dependency` directory. Very useful for integrating third-party dependencies.
 
 ### To Integrate with YAMCS
 This plugin functions as a YAMCS Telemetry Provider and will appear as a Datalink.  To integrate this plugin, add the
