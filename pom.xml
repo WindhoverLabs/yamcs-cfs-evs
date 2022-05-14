@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.windhoverlabs</groupId>
 	<artifactId>yamcs-cfs-ds</artifactId>
-	<version>1.1.7</version>
+	<version>1.0.0</version>
 
 	<packaging>jar</packaging>
 	<name>YAMCS plugin for the Core Flight System (CFS) Data Storage (DS) application.</name>
