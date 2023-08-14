@@ -31,7 +31,7 @@
  *
  *****************************************************************************/
 
-package com.windhoverlabs.yamcs.cfs.ds;
+package com.windhoverlabs.yamcs.cfs.evs;
 
 import com.google.common.io.BaseEncoding;
 import java.io.DataInputStream;
@@ -70,13 +70,15 @@ import org.yamcs.yarch.YarchDatabase;
 import org.yamcs.yarch.YarchDatabaseInstance;
 import org.yamcs.yarch.rocksdb.protobuf.Tablespace.ObjectProperties;
 
-public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
+public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
   /* Configuration Defaults */
   static long POLLING_PERIOD_DEFAULT = 5000;
   static int INITIAL_DELAY_DEFAULT = -1;
   static boolean IGNORE_INITIAL_DEFAULT = true;
   static boolean CLEAR_BUCKETS_AT_STARTUP_DEFAULT = false;
   static boolean DELETE_FILE_AFTER_PROCESSING_DEFAULT = false;
+  
+  private boolean outOfSync = false;
 
   /* Configuration Parameters */
   protected long initialDelay;
@@ -94,6 +96,8 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
   protected WatchService watcher;
   protected List<WatchKey> watchKeys;
   protected Thread thread;
+  
+  private String eventStreamName;
 
   /* Constants */
   static final byte[] CFE_FS_FILE_CONTENT_ID_BYTE =
@@ -156,7 +160,7 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
     /* Local variables */
     String packetInputStreamClassName;
     List<String> bucketNames;
-
+    this.config = config;
     /* Calidate the configuration that the user passed us. */
     try {
       config = getSpec().validate(config);
@@ -167,58 +171,59 @@ public class CfsDsPlugin extends AbstractTmDataLink implements Runnable {
     /* Instantiate our member objects. */
     this.buckets = new LinkedList<FileSystemBucket>();
     this.watchKeys = new LinkedList<WatchKey>();
+    this.eventStreamName = this.config.getString("eventStream"); 
 
     /* Read in our configuration parameters. */
-    bucketNames = config.getList("buckets");
-    this.DS_FILE_HDR_SUBTYPE = config.getInt("DS_FILE_HDR_SUBTYPE");
-    this.DS_TOTAL_FNAME_BUFSIZE = config.getInt("DS_TOTAL_FNAME_BUFSIZE");
-    this.initialDelay = config.getLong("initialDelay", INITIAL_DELAY_DEFAULT);
-    this.period = config.getLong("pollingPeriod", POLLING_PERIOD_DEFAULT) * 1000;
-    this.ignoreInitial = config.getBoolean("ignoreInitial", IGNORE_INITIAL_DEFAULT);
-    this.clearBucketsAtStartup =
-        config.getBoolean("clearBucketsAtStartup", CLEAR_BUCKETS_AT_STARTUP_DEFAULT);
-    this.deleteFileAfterProcessing =
-        config.getBoolean("deleteFileAfterProcessing", DELETE_FILE_AFTER_PROCESSING_DEFAULT);
+//    bucketNames = config.getList("buckets");
+//    this.DS_FILE_HDR_SUBTYPE = config.getInt("DS_FILE_HDR_SUBTYPE");
+//    this.DS_TOTAL_FNAME_BUFSIZE = config.getInt("DS_TOTAL_FNAME_BUFSIZE");
+//    this.initialDelay = config.getLong("initialDelay", INITIAL_DELAY_DEFAULT);
+//    this.period = config.getLong("pollingPeriod", POLLING_PERIOD_DEFAULT) * 1000;
+//    this.ignoreInitial = config.getBoolean("ignoreInitial", IGNORE_INITIAL_DEFAULT);
+//    this.clearBucketsAtStartup =
+//        config.getBoolean("clearBucketsAtStartup", CLEAR_BUCKETS_AT_STARTUP_DEFAULT);
+//    this.deleteFileAfterProcessing =
+//        config.getBoolean("deleteFileAfterProcessing", DELETE_FILE_AFTER_PROCESSING_DEFAULT);
+//
+//    /* Create the WatchService from the file system.  We're going to use this later to monitor
+//     * the files and directories in YAMCS Buckets. */
+//    try {
+//      watcher = FileSystems.getDefault().newWatchService();
+//    } catch (IOException e1) {
+//      e1.printStackTrace();
+//    }
 
-    /* Create the WatchService from the file system.  We're going to use this later to monitor
-     * the files and directories in YAMCS Buckets. */
-    try {
-      watcher = FileSystems.getDefault().newWatchService();
-    } catch (IOException e1) {
-      e1.printStackTrace();
-    }
+//    /* Iterate through the bucket names passed to us by the configuration file.  We're going to add the buckets
+//     * to our internal list so we can process them later. */
+//    for (String bucketName : bucketNames) {
+//      YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
+//
+//      try {
+//        FileSystemBucket bucket;
+//        bucket = (FileSystemBucket) yarch.getBucket(bucketName);
+//        buckets.add(bucket);
+//      } catch (IOException e) {
+//        e.printStackTrace();
+//      }
+//    }
 
-    /* Iterate through the bucket names passed to us by the configuration file.  We're going to add the buckets
-     * to our internal list so we can process them later. */
-    for (String bucketName : bucketNames) {
-      YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
-
-      try {
-        FileSystemBucket bucket;
-        bucket = (FileSystemBucket) yarch.getBucket(bucketName);
-        buckets.add(bucket);
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-    }
-
-    /* Iterate through the bucket and create a WatchKey on the path.  This will be used in the main
-     * thread to get notification of any new or modified files. */
-    for (FileSystemBucket bucket : buckets) {
-      Path fullPath = Paths.get(bucket.getBucketRoot().toString()).toAbsolutePath();
-      try {
-        WatchKey key =
-            fullPath.register(
-                watcher,
-                StandardWatchEventKinds.ENTRY_CREATE,
-                StandardWatchEventKinds.ENTRY_MODIFY);
-
-        this.watchKeys.add(key);
-      } catch (IOException e1) {
-        e1.printStackTrace();
-        break;
-      }
-    }
+//    /* Iterate through the bucket and create a WatchKey on the path.  This will be used in the main
+//     * thread to get notification of any new or modified files. */
+//    for (FileSystemBucket bucket : buckets) {
+//      Path fullPath = Paths.get(bucket.getBucketRoot().toString()).toAbsolutePath();
+//      try {
+//        WatchKey key =
+//            fullPath.register(
+//                watcher,
+//                StandardWatchEventKinds.ENTRY_CREATE,
+//                StandardWatchEventKinds.ENTRY_MODIFY);
+//
+//        this.watchKeys.add(key);
+//      } catch (IOException e1) {
+//        e1.printStackTrace();
+//        break;
+//      }
+//    }
 
     /* Now get the packet input stream processor class name.  This is optional, so
      * if its not provided, use the CcsdsPacketInputStream as default. */
