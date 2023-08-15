@@ -41,6 +41,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,14 +49,23 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.yamcs.ConfigurationException;
 import org.yamcs.Spec;
 import org.yamcs.Spec.OptionType;
 import org.yamcs.TmPacket;
 import org.yamcs.ValidationException;
 import org.yamcs.YConfiguration;
+import org.yamcs.YamcsServer;
+import org.yamcs.parameter.ParameterValue;
+import org.yamcs.parameter.SystemParametersProducer;
+import org.yamcs.parameter.SystemParametersService;
+import org.yamcs.protobuf.Yamcs;
 import org.yamcs.tctm.AbstractTmDataLink;
 import org.yamcs.tctm.CcsdsPacketInputStream;
 import org.yamcs.tctm.Link.Status;
@@ -63,12 +73,20 @@ import org.yamcs.tctm.PacketInputStream;
 import org.yamcs.tctm.PacketTooLongException;
 import org.yamcs.utils.FileUtils;
 import org.yamcs.utils.YObjectLoader;
+import org.yamcs.xtce.Parameter;
 import org.yamcs.yarch.FileSystemBucket;
+import org.yamcs.yarch.Stream;
+import org.yamcs.yarch.StreamSubscriber;
+import org.yamcs.yarch.Tuple;
+import org.yamcs.yarch.YarchDatabase;
+import org.yamcs.yarch.YarchDatabaseInstance;
+import org.yamcs.yarch.protobuf.Db.Event;
 import org.yamcs.yarch.rocksdb.protobuf.Tablespace.ObjectProperties;
 
-public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
+public class CfsEvsPlugin extends AbstractTmDataLink
+    implements Runnable, StreamSubscriber, SystemParametersProducer {
   /* Configuration Defaults */
-  static long POLLING_PERIOD_DEFAULT = 5000;
+  static long POLLING_PERIOD_DEFAULT = 1000;
   static int INITIAL_DELAY_DEFAULT = -1;
   static boolean IGNORE_INITIAL_DEFAULT = true;
   static boolean CLEAR_BUCKETS_AT_STARTUP_DEFAULT = false;
@@ -76,13 +94,17 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
 
   private boolean outOfSync = false;
 
+  private Parameter outOfSyncParam;
+  private int streamEventCount;
+  private int logEventCount;
+
   /* Configuration Parameters */
   protected long initialDelay;
   protected long period;
   protected boolean ignoreInitial;
   protected boolean clearBucketsAtStartup;
   protected boolean deleteFileAfterProcessing;
-  protected int DS_FILE_HDR_SUBTYPE;
+  protected int EVS_FILE_HDR_SUBTYPE;
   protected int DS_TOTAL_FNAME_BUFSIZE;
 
   /* Internal member attributes. */
@@ -95,9 +117,20 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
 
   private String eventStreamName;
 
+  static final String RECTIME_CNAME = "rectime";
+  static final String DATA_EVENT_CNAME = "data";
+
+  private int CFE_EVS_MAX_MESSAGE_LENGTH;
+
   /* Constants */
   static final byte[] CFE_FS_FILE_CONTENT_ID_BYTE =
       BaseEncoding.base16().lowerCase().decode("63464531".toLowerCase());
+
+  private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+  private class CfeEvsPacket {
+    String Message;
+  }
 
   @Override
   public Spec getSpec() {
@@ -109,7 +142,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
     spec.addOption("name", OptionType.STRING).withRequired(true);
     spec.addOption("class", OptionType.STRING).withRequired(true);
     spec.addOption("eventStream", OptionType.STRING).withRequired(true);
-    //    spec.addOption("DS_FILE_HDR_SUBTYPE", OptionType.INTEGER).withRequired(true);
+    spec.addOption("EVS_FILE_HDR_SUBTYPE", OptionType.INTEGER).withRequired(true);
     //    spec.addOption("DS_TOTAL_FNAME_BUFSIZE", OptionType.INTEGER).withRequired(true);
     //    spec.addOption("initialDelay", OptionType.INTEGER)
     //        .withDefault(INITIAL_DELAY_DEFAULT)
@@ -126,8 +159,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
     //    spec.addOption("clearBucketsAtStartup", OptionType.BOOLEAN)
     //        .withDefault(CLEAR_BUCKETS_AT_STARTUP_DEFAULT)
     //        .withRequired(false);
-    //    spec.addOption("buckets", OptionType.LIST_OR_ELEMENT)
-    //        .withElementType(OptionType.STRING)
+    spec.addOption("buckets", OptionType.LIST_OR_ELEMENT).withElementType(OptionType.STRING);
     //        .withRequired(true);
     //    spec.addOption("packetPreprocessorClassName", OptionType.STRING).withRequired(true);
     //    spec.addOption("packetInputStreamClassName", OptionType.STRING).withRequired(false);
@@ -171,59 +203,72 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
     this.watchKeys = new LinkedList<WatchKey>();
     this.eventStreamName = this.config.getString("eventStream");
 
+    Stream stream = YarchDatabase.getInstance(yamcsInstance).getStream(eventStreamName);
+
+    stream.addSubscriber(this);
+    streamEventCount = 0;
+
+    scheduler.scheduleAtFixedRate(
+        () -> {
+          this.outOfSync = this.logEventCount != this.streamEventCount;
+        },
+        30,
+        30,
+        TimeUnit.SECONDS);
+
     /* Read in our configuration parameters. */
-    //    bucketNames = config.getList("buckets");
-    //    this.DS_FILE_HDR_SUBTYPE = config.getInt("DS_FILE_HDR_SUBTYPE");
-    //    this.DS_TOTAL_FNAME_BUFSIZE = config.getInt("DS_TOTAL_FNAME_BUFSIZE");
-    //    this.initialDelay = config.getLong("initialDelay", INITIAL_DELAY_DEFAULT);
-    //    this.period = config.getLong("pollingPeriod", POLLING_PERIOD_DEFAULT) * 1000;
-    //    this.ignoreInitial = config.getBoolean("ignoreInitial", IGNORE_INITIAL_DEFAULT);
-    //    this.clearBucketsAtStartup =
-    //        config.getBoolean("clearBucketsAtStartup", CLEAR_BUCKETS_AT_STARTUP_DEFAULT);
-    //    this.deleteFileAfterProcessing =
-    //        config.getBoolean("deleteFileAfterProcessing", DELETE_FILE_AFTER_PROCESSING_DEFAULT);
-    //
-    //    /* Create the WatchService from the file system.  We're going to use this later to monitor
-    //     * the files and directories in YAMCS Buckets. */
-    //    try {
-    //      watcher = FileSystems.getDefault().newWatchService();
-    //    } catch (IOException e1) {
-    //      e1.printStackTrace();
-    //    }
+    bucketNames = config.getList("buckets");
+    this.CFE_EVS_MAX_MESSAGE_LENGTH = config.getInt("CFE_EVS_MAX_MESSAGE_LENGTH", 122);
+    this.EVS_FILE_HDR_SUBTYPE = config.getInt("EVS_FILE_HDR_SUBTYPE");
+    this.initialDelay = config.getLong("initialDelay", INITIAL_DELAY_DEFAULT);
+    this.period = config.getLong("pollingPeriod", POLLING_PERIOD_DEFAULT);
+    this.ignoreInitial = config.getBoolean("ignoreInitial", IGNORE_INITIAL_DEFAULT);
+    this.clearBucketsAtStartup =
+        config.getBoolean("clearBucketsAtStartup", CLEAR_BUCKETS_AT_STARTUP_DEFAULT);
+    this.deleteFileAfterProcessing =
+        config.getBoolean("deleteFileAfterProcessing", DELETE_FILE_AFTER_PROCESSING_DEFAULT);
 
-    //    /* Iterate through the bucket names passed to us by the configuration file.  We're going
-    // to add the buckets
-    //     * to our internal list so we can process them later. */
-    //    for (String bucketName : bucketNames) {
-    //      YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
-    //
-    //      try {
-    //        FileSystemBucket bucket;
-    //        bucket = (FileSystemBucket) yarch.getBucket(bucketName);
-    //        buckets.add(bucket);
-    //      } catch (IOException e) {
-    //        e.printStackTrace();
-    //      }
-    //    }
+    /* Create the WatchService from the file system.  We're going to use this later to monitor
+     * the files and directories in YAMCS Buckets. */
+    try {
+      watcher = FileSystems.getDefault().newWatchService();
+    } catch (IOException e1) {
+      e1.printStackTrace();
+    }
 
-    //    /* Iterate through the bucket and create a WatchKey on the path.  This will be used in the
-    // main
-    //     * thread to get notification of any new or modified files. */
-    //    for (FileSystemBucket bucket : buckets) {
-    //      Path fullPath = Paths.get(bucket.getBucketRoot().toString()).toAbsolutePath();
-    //      try {
-    //        WatchKey key =
-    //            fullPath.register(
-    //                watcher,
-    //                StandardWatchEventKinds.ENTRY_CREATE,
-    //                StandardWatchEventKinds.ENTRY_MODIFY);
-    //
-    //        this.watchKeys.add(key);
-    //      } catch (IOException e1) {
-    //        e1.printStackTrace();
-    //        break;
-    //      }
-    //    }
+    /* Iterate through the bucket names passed to us by the configuration file.  We're going
+    to add the buckets
+        * to our internal list so we can process them later. */
+    for (String bucketName : bucketNames) {
+      YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
+
+      try {
+        FileSystemBucket bucket;
+        bucket = (FileSystemBucket) yarch.getBucket(bucketName);
+        buckets.add(bucket);
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    }
+
+    /* Iterate through the bucket and create a WatchKey on the path.  This will be used in the
+    main
+        * thread to get notification of any new or modified files. */
+    for (FileSystemBucket bucket : buckets) {
+      Path fullPath = Paths.get(bucket.getBucketRoot().toString()).toAbsolutePath();
+      try {
+        WatchKey key =
+            fullPath.register(
+                watcher,
+                StandardWatchEventKinds.ENTRY_CREATE,
+                StandardWatchEventKinds.ENTRY_MODIFY);
+
+        this.watchKeys.add(key);
+      } catch (IOException e1) {
+        e1.printStackTrace();
+        break;
+      }
+    }
 
     /* Now get the packet input stream processor class name.  This is optional, so
      * if its not provided, use the CcsdsPacketInputStream as default. */
@@ -458,38 +503,18 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
         description = new String(descriptionBytes, StandardCharsets.UTF_8);
 
         /* Is this a DS log? */
-        if (subType == DS_FILE_HDR_SUBTYPE) {
-          /* It is a DS log.  Start reading the secondary header for the DS log. */
-          int closeSeconds;
-          int closeSubsecs;
-          int fileTableIndex;
-          int fileNameType;
-          byte[] logFileNameBytes = new byte[DS_TOTAL_FNAME_BUFSIZE];
-          String logFileName;
+        if (subType == EVS_FILE_HDR_SUBTYPE) {
+          /* It is a EVS log.  Start reading the secondary header for the EVS log. */
+          int NextIndex;
+          int LogCount;
+          int LogFullFlag;
+          int LogMode;
+          int LogOverflowCounter;
+          ArrayList<CfeEvsPacket> eventPackets = new ArrayList<CfeEvsPacket>();
 
-          dataInputStream.read(nextWord, 0, 4);
-          closeSeconds =
-              (nextWord[0] << 24) + (nextWord[1] << 16) + (nextWord[2] << 8) + (nextWord[3]);
-
-          dataInputStream.read(nextWord, 0, 4);
-          closeSubsecs =
-              (nextWord[0] << 24) + (nextWord[1] << 16) + (nextWord[2] << 8) + (nextWord[3]);
-
-          dataInputStream.read(nextWord, 0, 2);
-          fileTableIndex = (nextWord[0] << 8) + (nextWord[1]);
-
-          dataInputStream.read(nextWord, 0, 2);
-          fileNameType = (nextWord[0] << 8) + (nextWord[1]);
-
-          dataInputStream.read(logFileNameBytes, 0, DS_TOTAL_FNAME_BUFSIZE);
-          logFileName = new String(logFileNameBytes, StandardCharsets.UTF_8);
-
-          /* Log some info for archival purposes. */
           log.info(
-              "Parsing file "
+              "Parsing EVS log "
                   + inputFile.toString()
-                  + " - "
-                  + logFileName
                   + "."
                   + "  SubType="
                   + subType
@@ -500,20 +525,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
                   + "  ProcID="
                   + processorID
                   + "  AppID="
-                  + applicationID
-                  + "  Time="
-                  + timeSeconds
-                  + ":"
-                  + timeSubSeconds
-                  + "'"
-                  + "  Closed="
-                  + closeSeconds
-                  + ":"
-                  + closeSubsecs
-                  + "  FileIndex="
-                  + fileTableIndex
-                  + "  FileNameType="
-                  + fileNameType);
+                  + applicationID);
 
           /* Initialze the packet input stream with the data input stream.  We reinitialize it
            * with every file to ensure the byte stream is at the correct location, immediately
@@ -527,7 +539,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
             if (tmpkt == null) {
               break;
             }
-
+            logEventCount++;
             processPacket(tmpkt);
           }
 
@@ -579,5 +591,43 @@ public class CfsEvsPlugin extends AbstractTmDataLink implements Runnable {
     }
 
     return pwt;
+  }
+
+  @Override
+  public void onTuple(Stream stream, Tuple tuple) {
+    if (isRunningAndEnabled()) {
+      Event event = (Event) tuple.getColumn("body");
+      updateStats(event.getMessage().length());
+      streamEventCount++;
+    }
+  }
+
+  @Override
+  public void setupSystemParameters(SystemParametersService sysParamCollector) {
+    super.setupSystemParameters(sysParamCollector);
+    outOfSyncParam =
+        sysParamCollector.createSystemParameter(
+            linkName + "/outOfSync",
+            Yamcs.Value.Type.BOOLEAN,
+            "Are the downlinked events not in sync wtih the ones from the log");
+  }
+
+  @Override
+  public List<ParameterValue> getSystemParameters() {
+    long time = getCurrentTime();
+
+    ArrayList<ParameterValue> list = new ArrayList<>();
+    try {
+      collectSystemParameters(time, list);
+    } catch (Exception e) {
+      log.error("Exception caught when collecting link system parameters", e);
+    }
+    return list;
+  }
+
+  @Override
+  protected void collectSystemParameters(long time, List<ParameterValue> list) {
+    super.collectSystemParameters(time, list);
+    list.add(SystemParametersService.getPV(outOfSyncParam, time, outOfSync));
   }
 }
