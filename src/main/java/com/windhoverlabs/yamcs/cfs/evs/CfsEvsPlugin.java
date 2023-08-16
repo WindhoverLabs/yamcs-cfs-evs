@@ -120,17 +120,11 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   static final String RECTIME_CNAME = "rectime";
   static final String DATA_EVENT_CNAME = "data";
 
-  private int CFE_EVS_MAX_MESSAGE_LENGTH;
-
   /* Constants */
   static final byte[] CFE_FS_FILE_CONTENT_ID_BYTE =
       BaseEncoding.base16().lowerCase().decode("63464531".toLowerCase());
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
-  private class CfeEvsPacket {
-    String Message;
-  }
 
   @Override
   public Spec getSpec() {
@@ -143,7 +137,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     spec.addOption("class", OptionType.STRING).withRequired(true);
     spec.addOption("eventStream", OptionType.STRING).withRequired(true);
     spec.addOption("EVS_FILE_HDR_SUBTYPE", OptionType.INTEGER).withRequired(true);
-    //    spec.addOption("DS_TOTAL_FNAME_BUFSIZE", OptionType.INTEGER).withRequired(true);
+    spec.addOption("stream", OptionType.STRING).withRequired(true);
     //    spec.addOption("initialDelay", OptionType.INTEGER)
     //        .withDefault(INITIAL_DELAY_DEFAULT)
     //        .withRequired(false);
@@ -161,16 +155,15 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     //        .withRequired(false);
     spec.addOption("buckets", OptionType.LIST_OR_ELEMENT).withElementType(OptionType.STRING);
     //        .withRequired(true);
-    //    spec.addOption("packetPreprocessorClassName", OptionType.STRING).withRequired(true);
-    //    spec.addOption("packetInputStreamClassName", OptionType.STRING).withRequired(false);
-    //
-    //    /* Set the preprocessor argument config parameters to "allowUnknownKeys".  We don't know
-    // or care what
-    //     * these parameters are.  Let the preprocessor define them. */
-    //    preprocessorSpec.allowUnknownKeys(true);
-    //    spec.addOption("packetPreprocessorArgs", OptionType.MAP)
-    //        .withRequired(true)
-    //        .withSpec(preprocessorSpec);
+    spec.addOption("packetInputStreamClassName", OptionType.STRING).withRequired(false);
+    spec.addOption("packetPreprocessorClassName", OptionType.STRING).withRequired(true);
+    /* Set the preprocessor argument config parameters to "allowUnknownKeys".  We don't know
+    or care what
+        * these parameters are.  Let the preprocessor define them. */
+    preprocessorSpec.allowUnknownKeys(true);
+    spec.addOption("packetPreprocessorArgs", OptionType.MAP)
+        .withRequired(true)
+        .withSpec(preprocessorSpec);
     //
     //    /* Set the packet input stream argument config parameters to "allowUnknownKeys".  We don't
     // know or care what
@@ -218,7 +211,6 @@ public class CfsEvsPlugin extends AbstractTmDataLink
 
     /* Read in our configuration parameters. */
     bucketNames = config.getList("buckets");
-    this.CFE_EVS_MAX_MESSAGE_LENGTH = config.getInt("CFE_EVS_MAX_MESSAGE_LENGTH", 122);
     this.EVS_FILE_HDR_SUBTYPE = config.getInt("EVS_FILE_HDR_SUBTYPE");
     this.initialDelay = config.getLong("initialDelay", INITIAL_DELAY_DEFAULT);
     this.period = config.getLong("pollingPeriod", POLLING_PERIOD_DEFAULT);
@@ -412,8 +404,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
             continue;
           }
 
-          if (kind == StandardWatchEventKinds.ENTRY_CREATE
-              || kind == StandardWatchEventKinds.ENTRY_MODIFY) {
+          if (kind == StandardWatchEventKinds.ENTRY_MODIFY) {
             /* The filename is the context of the event. */
             WatchEvent<Path> ev = (WatchEvent<Path>) evnt;
             Path fullPath = dir.resolve(ev.context());
@@ -505,12 +496,6 @@ public class CfsEvsPlugin extends AbstractTmDataLink
         /* Is this a DS log? */
         if (subType == EVS_FILE_HDR_SUBTYPE) {
           /* It is a EVS log.  Start reading the secondary header for the EVS log. */
-          int NextIndex;
-          int LogCount;
-          int LogFullFlag;
-          int LogMode;
-          int LogOverflowCounter;
-          ArrayList<CfeEvsPacket> eventPackets = new ArrayList<CfeEvsPacket>();
 
           log.info(
               "Parsing EVS log "
@@ -539,7 +524,9 @@ public class CfsEvsPlugin extends AbstractTmDataLink
             if (tmpkt == null) {
               break;
             }
+            updateStats(tmpkt.getPacket().length);
             logEventCount++;
+
             processPacket(tmpkt);
           }
 
@@ -568,7 +555,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
           /* Something went wrong.  Return null. */
           break;
         }
-        updateStats(packet.length);
+
         TmPacket pkt = new TmPacket(timeService.getMissionTime(), packet);
         pkt.setEarthRceptionTime(timeService.getHresMissionTime());
 
