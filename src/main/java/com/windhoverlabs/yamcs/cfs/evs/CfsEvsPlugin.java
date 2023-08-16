@@ -599,11 +599,11 @@ public class CfsEvsPlugin extends AbstractTmDataLink
             linkName + "/outOfSync",
             Yamcs.Value.Type.BOOLEAN,
             "Are the downlinked events not in sync wtih the ones from the log");
-//    outOfSyncParam =
-//            sysParamCollector.createSystemParameter(
-//                linkName + "/outOfSync",
-//                Yamcs.Value.Type.BOOLEAN,
-//                "Are the downlinked events not in sync wtih the ones from the log");
+    //    outOfSyncParam =
+    //            sysParamCollector.createSystemParameter(
+    //                linkName + "/outOfSync",
+    //                Yamcs.Value.Type.BOOLEAN,
+    //                "Are the downlinked events not in sync wtih the ones from the log");
   }
 
   @Override
