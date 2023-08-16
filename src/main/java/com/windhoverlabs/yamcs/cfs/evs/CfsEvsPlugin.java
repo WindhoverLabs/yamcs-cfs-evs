@@ -598,12 +598,17 @@ public class CfsEvsPlugin extends AbstractTmDataLink
         sysParamCollector.createSystemParameter(
             linkName + "/outOfSync",
             Yamcs.Value.Type.BOOLEAN,
-            "Are the downlinked events not in sync wtih the ones from the log");
-    //    outOfSyncParam =
-    //            sysParamCollector.createSystemParameter(
-    //                linkName + "/outOfSync",
-    //                Yamcs.Value.Type.BOOLEAN,
-    //                "Are the downlinked events not in sync wtih the ones from the log");
+            "Are the downlinked events not in sync wtih the ones from the log?");
+    streamEventCountParam =
+        sysParamCollector.createSystemParameter(
+            linkName + "/streamEventCountParam",
+            Yamcs.Value.Type.UINT64,
+            "Event count in realtime event stream");
+    logEventCountParam =
+        sysParamCollector.createSystemParameter(
+            linkName + "/logEventCountParam",
+            Yamcs.Value.Type.UINT64,
+            "Event count from log files");
   }
 
   @Override
@@ -623,5 +628,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   protected void collectSystemParameters(long time, List<ParameterValue> list) {
     super.collectSystemParameters(time, list);
     list.add(SystemParametersService.getPV(outOfSyncParam, time, outOfSync));
+    list.add(SystemParametersService.getPV(streamEventCountParam, time, streamEventCount));
+    list.add(SystemParametersService.getPV(logEventCountParam, time, logEventCount));
   }
 }
