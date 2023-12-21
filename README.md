@@ -35,25 +35,23 @@ Note the `dependency:copy-dependencies` command; this will copy all of the jars 
 
 ### To Integrate with YAMCS
 This plugin functions as a YAMCS Telemetry Provider and will appear as a Datalink.  To integrate this plugin, add the
-"com.windhoverlabs.yamcs.cfs.ds.CfsDsPlugin" plugin to the "dataLinks" section of the YAMCS instance configuration. 
+"com.windhoverlabs.yamcs.cfs.evs.CfsEvsPlugin" plugin to the "dataLinks" section of the YAMCS instance configuration. 
 For example:
-```
+```yaml
 dataLinks:   
-  - name: ds-logs
-    class: com.windhoverlabs.yamcs.cfs.ds.CfsDsPlugin
+  - name: evs-logs
+    class: com.windhoverlabs.yamcs.cfs.evs.CfsEvsPlugin
+    eventStream: events_realtime
     stream: tm_realtime
     buckets: ["cfdpDown"]
-    DS_FILE_HDR_SUBTYPE: 12345
-    DS_TOTAL_FNAME_BUFSIZE: 64
-    packetPreprocessorClassName: org.yamcs.tctm.cfs.CfsPacketPreprocessor
-    packetPreprocessorArgs:
+    EVS_FILE_HDR_SUBTYPE: 16 
+    # DS_TOTAL_FNAME_BUFSIZE: 64
+    csvConfig:
+      mode: APPEND # APPEND, REPLACE, INACTIVE
+      outputFile: events_dump.csv
       byteOrder: LITTLE_ENDIAN
-      timestampFormat: CFE_SB_TIME_32_16_SUBS
-      timeEncoding:
-        useLocalGenerationTime: false
-        epoch: CUSTOM
-        epochUTC: "1970-01-01T00:00:00Z"
-        timeIncludesLeapSeconds: false
+      appNameMax: 40
+      eventMsgMax: 122
 ```
 
 ### Configuration
@@ -97,3 +95,27 @@ packetPreprocessorClassName
 packetPreprocessorArgs
 :  REQUIRED.  These are the arguments for the PacketPreprocessor
 
+
+### EVS CSV Mode API
+
+```python
+import requests
+r = requests.post('http://127.0.0.1:8090/api/fsw/evs/csv/mode/',
+                  json={"instance": "fsw",
+                        "linkName": "evs-logs",
+                        "mode": "INACTIVE"})
+```
+```python
+import requests
+r = requests.post('http://127.0.0.1:8090/api/fsw/evs/csv/mode/',
+                  json={"instance": "fsw",
+                        "linkName": "evs-logs",
+                        "mode": "APPEND"})
+```
+```python
+import requests
+r = requests.post('http://127.0.0.1:8090/api/fsw/evs/csv/mode/',
+                  json={"instance": "fsw",
+                        "linkName": "evs-logs",
+                        "mode": "REPLACE"})
+```
