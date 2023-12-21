@@ -34,6 +34,7 @@
 package com.windhoverlabs.yamcs.cfs.evs;
 
 import com.google.common.io.BaseEncoding;
+import com.windhoverlabs.yamcs.csv.api.EvsCSVMode;
 import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.EOFException;
@@ -50,6 +51,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
@@ -142,7 +144,16 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
   private ByteOrder byteOrder;
-  private CSVMode mode;
+  private EvsCSVMode mode;
+
+  public EvsCSVMode getMode() {
+    return mode;
+  }
+
+  public void setMode(EvsCSVMode mode) {
+    this.mode = mode;
+  }
+
   private String outputFile;
 
   Integer appNameMax;
@@ -578,13 +589,28 @@ public class CfsEvsPlugin extends AbstractTmDataLink
             csvEvents.add(ev);
           }
 
-          BufferedWriter writer;
-          if (outputFile != null) {
-            writer = Files.newBufferedWriter(Paths.get(outputFile));
-            //                printExportzInfo(out);
-          } else writer = null;
+          BufferedWriter writer = null;
 
-          writeToCSV(writer, csvEvents);
+          switch (mode) {
+            case APPEND:
+              if (outputFile != null) {
+                writer = Files.newBufferedWriter(Paths.get(outputFile), StandardOpenOption.APPEND);
+              } else writer = null;
+
+              writeToCSV(writer, csvEvents);
+              break;
+            case INACTIVE:
+              break;
+            case REPLACE:
+              if (outputFile != null) {
+                writer = Files.newBufferedWriter(Paths.get(outputFile));
+              } else writer = null;
+
+              writeToCSV(writer, csvEvents);
+              break;
+            default:
+              break;
+          }
 
           /* Are we supposed to delete the file? */
           if (this.deleteFileAfterProcessing) {
@@ -739,18 +765,17 @@ public class CfsEvsPlugin extends AbstractTmDataLink
             .setType("EVID" + eventId)
             .setMessage(msg)
             .build();
-    System.out.println("ev:" + ev.getMessage());
     return ev;
   }
 
-  private static CSVMode getMode(YConfiguration config) {
+  private static EvsCSVMode getMode(YConfiguration config) {
     String mode = config.getString("mode");
     if ("APPEND".equalsIgnoreCase(mode)) {
-      return CSVMode.APPEND;
+      return EvsCSVMode.APPEND;
     } else if ("REPLACE".equalsIgnoreCase(mode)) {
-      return CSVMode.REPLACE;
+      return EvsCSVMode.REPLACE;
     } else if ("INACTIVE".equalsIgnoreCase(mode)) {
-      return CSVMode.INACTIVE;
+      return EvsCSVMode.INACTIVE;
     } else {
       throw new ConfigurationException(
           "Invalid '" + mode + "' mode specified. Use one of APPEND, REPLACE or INACTIVE.");

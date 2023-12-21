@@ -173,6 +173,11 @@
 							</formats>
 						</configuration>
 					</execution>
+					    <execution>
+      <goals>
+        <goal>detect</goal>
+      </goals>
+    </execution>
 				</executions>
 			</plugin>
 			<plugin>
