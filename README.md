@@ -95,3 +95,27 @@ packetPreprocessorClassName
 packetPreprocessorArgs
 :  REQUIRED.  These are the arguments for the PacketPreprocessor
 
+
+### EVS CSV Mode API
+
+```python
+import requests
+r = requests.post('http://127.0.0.1:8090/api/fsw/evs/csv/mode/',
+                  json={"instance": "fsw",
+                        "linkName": "evs-logs",
+                        "mode": "INACTIVE"})
+```
+```python
+import requests
+r = requests.post('http://127.0.0.1:8090/api/fsw/evs/csv/mode/',
+                  json={"instance": "fsw",
+                        "linkName": "evs-logs",
+                        "mode": "APPEND"})
+```
+```python
+import requests
+r = requests.post('http://127.0.0.1:8090/api/fsw/evs/csv/mode/',
+                  json={"instance": "fsw",
+                        "linkName": "evs-logs",
+                        "mode": "REPLACE"})
+```
