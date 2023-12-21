@@ -34,13 +34,18 @@
 package com.windhoverlabs.yamcs.cfs.evs;
 
 import com.google.common.io.BaseEncoding;
+import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,12 +54,16 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
 import org.yamcs.ConfigurationException;
 import org.yamcs.Spec;
 import org.yamcs.Spec.OptionType;
@@ -65,7 +74,9 @@ import org.yamcs.YamcsServer;
 import org.yamcs.parameter.ParameterValue;
 import org.yamcs.parameter.SystemParametersProducer;
 import org.yamcs.parameter.SystemParametersService;
+import org.yamcs.protobuf.Event.EventSeverity;
 import org.yamcs.protobuf.Yamcs;
+import org.yamcs.tctm.AbstractPacketPreprocessor;
 import org.yamcs.tctm.AbstractTmDataLink;
 import org.yamcs.tctm.CcsdsPacketInputStream;
 import org.yamcs.tctm.Link.Status;
@@ -122,16 +133,26 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   static final String RECTIME_CNAME = "rectime";
   static final String DATA_EVENT_CNAME = "data";
 
+  private Charset charset;
+
   /* Constants */
   static final byte[] CFE_FS_FILE_CONTENT_ID_BYTE =
       BaseEncoding.base16().lowerCase().decode("63464531".toLowerCase());
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
+  private ByteOrder byteOrder;
+  private CSVMode mode;
+  private String outputFile;
+
+  Integer appNameMax;
+  Integer eventMsgMax;
+
   @Override
   public Spec getSpec() {
     Spec spec = new Spec();
     Spec preprocessorSpec = new Spec();
+    Spec csvConfigSpec = new Spec();
     Spec packetInputStreamSpec = new Spec();
 
     /* Define our configuration parameters. */
@@ -166,14 +187,13 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     spec.addOption("packetPreprocessorArgs", OptionType.MAP)
         .withRequired(true)
         .withSpec(preprocessorSpec);
-    //
-    //    /* Set the packet input stream argument config parameters to "allowUnknownKeys".  We don't
-    // know or care what
-    //     * these parameters are.  Let the packet input stream plugin define them. */
-    //    packetInputStreamSpec.allowUnknownKeys(true);
-    //    spec.addOption("packetInputStreamArgs", OptionType.MAP)
-    //        .withRequired(false)
-    //        .withSpec(packetInputStreamSpec);
+
+    csvConfigSpec.addOption("mode", OptionType.STRING).withRequired(true);
+    csvConfigSpec.addOption("outputFile", OptionType.STRING).withRequired(true);
+    csvConfigSpec.addOption("byteOrder", OptionType.STRING).withRequired(true);
+    csvConfigSpec.addOption("appNameMax", OptionType.INTEGER).withRequired(true);
+    csvConfigSpec.addOption("eventMsgMax", OptionType.INTEGER).withRequired(true);
+    spec.addOption("csvConfig", OptionType.MAP).withRequired(true).withSpec(csvConfigSpec);
 
     return spec;
   }
@@ -197,6 +217,15 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     this.buckets = new LinkedList<FileSystemBucket>();
     this.watchKeys = new LinkedList<WatchKey>();
     this.eventStreamName = this.config.getString("eventStream");
+
+    YConfiguration csvConfig = config.getConfig("csvConfig");
+    appNameMax = csvConfig.getInt("appNameMax");
+    eventMsgMax = csvConfig.getInt("eventMsgMax");
+
+    mode = getMode(csvConfig);
+    outputFile = csvConfig.getString("outputFile");
+
+    byteOrder = AbstractPacketPreprocessor.getByteOrder(csvConfig);
 
     Stream stream = YarchDatabase.getInstance(yamcsInstance).getStream(eventStreamName);
 
@@ -284,6 +313,17 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     } catch (ConfigurationException e) {
       log.error("Cannot instantiate the packetInput stream", e);
       throw e;
+    }
+
+    String chrname = config.getString("charset", "US-ASCII");
+    try {
+      charset = Charset.forName(chrname);
+    } catch (UnsupportedCharsetException e) {
+      throw new ConfigurationException(
+          "Unsupported charset '"
+              + chrname
+              + "'. Please use one of "
+              + Charset.availableCharsets().keySet());
     }
   }
 
@@ -521,6 +561,8 @@ public class CfsEvsPlugin extends AbstractTmDataLink
 
           /* Loop on the messages.  Look at the 'isRunningAndEnabled' since this
            * might take some time and we might need to be interrupted. */
+
+          ArrayList<Event> csvEvents = new ArrayList<Event>();
           while (isRunningAndEnabled()) {
             TmPacket tmpkt = getNextPacket();
             if (tmpkt == null) {
@@ -530,7 +572,19 @@ public class CfsEvsPlugin extends AbstractTmDataLink
             logEventCount++;
 
             processPacket(tmpkt);
+            Event ev =
+                processEvsPacket(
+                    tmpkt.getReceptionTime(), tmpkt.getGenerationTime(), tmpkt.getPacket());
+            csvEvents.add(ev);
           }
+
+          BufferedWriter writer;
+          if (outputFile != null) {
+            writer = Files.newBufferedWriter(Paths.get(outputFile));
+            //                printExportzInfo(out);
+          } else writer = null;
+
+          writeToCSV(writer, csvEvents);
 
           /* Are we supposed to delete the file? */
           if (this.deleteFileAfterProcessing) {
@@ -630,5 +684,122 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     list.add(SystemParametersService.getPV(outOfSyncParam, time, outOfSync));
     list.add(SystemParametersService.getPV(streamEventCountParam, time, streamEventCount));
     list.add(SystemParametersService.getPV(logEventCountParam, time, logEventCount));
+  }
+
+  private String decodeString(ByteBuffer buf, int maxLength) {
+    maxLength = Math.min(maxLength, buf.remaining());
+    ByteBuffer buf1 = buf.slice();
+    buf1.limit(maxLength);
+    int k = 0;
+    while (k < maxLength) {
+      if (buf1.get(k) == 0) {
+        break;
+      }
+      k++;
+    }
+    buf1.limit(k);
+
+    String r = charset.decode(buf1).toString();
+    buf.position(buf.position() + maxLength);
+
+    return r;
+  }
+
+  private Event processEvsPacket(long rectime, long gentime, byte[] packet) {
+    ByteBuffer buf = ByteBuffer.wrap(packet);
+    buf.order(byteOrder);
+    buf.position(12);
+    String app = decodeString(buf, appNameMax);
+    int eventId = buf.getShort();
+    int eventType = buf.getShort();
+    buf.getInt(); // int spacecraftId = */
+    int processorId = buf.getInt();
+    String msg = decodeString(buf, eventMsgMax);
+
+    EventSeverity evSev;
+
+    switch (eventType) {
+      case 3:
+        evSev = EventSeverity.ERROR;
+        break;
+      case 4:
+        evSev = EventSeverity.CRITICAL;
+        break;
+      default:
+        evSev = EventSeverity.INFO;
+    }
+
+    Event ev =
+        Event.newBuilder()
+            .setGenerationTime(gentime)
+            .setReceptionTime(rectime)
+            .setSeqNumber(0)
+            .setSource("/CFS/CPU" + processorId + "/" + app)
+            .setSeverity(evSev)
+            .setType("EVID" + eventId)
+            .setMessage(msg)
+            .build();
+    System.out.println("ev:" + ev.getMessage());
+    return ev;
+  }
+
+  private static CSVMode getMode(YConfiguration config) {
+    String mode = config.getString("mode");
+    if ("APPEND".equalsIgnoreCase(mode)) {
+      return CSVMode.APPEND;
+    } else if ("REPLACE".equalsIgnoreCase(mode)) {
+      return CSVMode.REPLACE;
+    } else if ("INACTIVE".equalsIgnoreCase(mode)) {
+      return CSVMode.INACTIVE;
+    } else {
+      throw new ConfigurationException(
+          "Invalid '" + mode + "' mode specified. Use one of APPEND, REPLACE or INACTIVE.");
+    }
+  }
+
+  private void writeToCSV(BufferedWriter writer, ArrayList<Event> events) {
+    CSVPrinter csvPrinter = null;
+    List<Instant> sortedTimeStamps = null;
+    HashMap<Instant, HashMap<String, Integer>> zeroParamToCountMap = null;
+    HashMap<Instant, HashMap<String, Integer>> paramToCountMap = null;
+    HashMap<Instant, HashMap<String, ParameterValue>> paramToLatestValMap = null;
+    ArrayList<String> columnHeaders = new ArrayList<String>();
+    try {
+      columnHeaders.add("Severity");
+      columnHeaders.add("Generation Time");
+      columnHeaders.add("Message");
+      columnHeaders.add("Source");
+      columnHeaders.add("Type");
+
+      csvPrinter = new CSVPrinter(writer, CSVFormat.DEFAULT);
+
+    } catch (IOException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+      return;
+    }
+    try {
+      csvPrinter.printRecord(columnHeaders);
+
+      for (Event e : events) {
+        ArrayList<String> evRecord = new ArrayList<String>();
+        evRecord.add(e.getSeverity().toString());
+        evRecord.add(Instant.ofEpochMilli(e.getGenerationTime()).toString());
+        evRecord.add(e.getMessage());
+        evRecord.add(e.getSource());
+        evRecord.add(e.getType());
+
+        csvPrinter.printRecord(evRecord);
+      }
+
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+
+    try {
+      csvPrinter.flush();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 }
