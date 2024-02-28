@@ -3,13 +3,13 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.windhoverlabs</groupId>
 	<artifactId>yamcs-cfs-evs</artifactId>
-	<version>1.1.0</version>
+	<version>1.2.0</version>
 
 	<packaging>jar</packaging>
 	<name>YAMCS plugin for the Core Flight System (CFS) Event Services (EVS) application.</name>
 
 	<properties>
-		<yamcsVersion>5.6.2</yamcsVersion>
+		<yamcsVersion>5.8.7</yamcsVersion>
 		<maven.compiler.source>1.8</maven.compiler.source>
 		<maven.compiler.target>1.8</maven.compiler.target>
 	</properties>
