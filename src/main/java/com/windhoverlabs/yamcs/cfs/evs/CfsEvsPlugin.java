@@ -594,7 +594,11 @@ public class CfsEvsPlugin extends AbstractTmDataLink
           switch (mode) {
             case APPEND:
               if (outputFile != null) {
-                writer = Files.newBufferedWriter(Paths.get(outputFile), StandardOpenOption.APPEND);
+                writer =
+                    Files.newBufferedWriter(
+                        Paths.get(outputFile),
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND);
               } else writer = null;
 
               writeToCSV(writer, csvEvents);
@@ -735,6 +739,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     ByteBuffer buf = ByteBuffer.wrap(packet);
     buf.order(byteOrder);
     buf.position(12);
+    // System.out.println("appNameMax:" + appNameMax);
     String app = decodeString(buf, appNameMax);
     int eventId = buf.getShort();
     int eventType = buf.getShort();
