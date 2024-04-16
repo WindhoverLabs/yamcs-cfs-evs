@@ -47,11 +47,20 @@ dataLinks:
     EVS_FILE_HDR_SUBTYPE: 16 
     # DS_TOTAL_FNAME_BUFSIZE: 64
     csvConfig:
-      mode: APPEND # APPEND, REPLACE, INACTIVE
+      mode: REPLACE # APPEND, REPLACE, INACTIVE
       outputFile: events_dump.csv
       byteOrder: LITTLE_ENDIAN
       appNameMax: 40
       eventMsgMax: 122
+    packetPreprocessorClassName: org.yamcs.tctm.cfs.CfsPacketPreprocessor
+    packetPreprocessorArgs:
+      byteOrder: LITTLE_ENDIAN
+      timestampFormat: CFE_SB_TIME_32_16_SUBS
+      timeEncoding:
+        useLocalGenerationTime: false
+        epoch: CUSTOM
+        epochUTC: "1970-01-01T00:00:00Z"
+        timeIncludesLeapSeconds: true
 ```
 
 ### Configuration
