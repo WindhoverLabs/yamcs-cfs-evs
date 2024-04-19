@@ -45,16 +45,21 @@ dataLinks:
     stream: tm_realtime
     buckets: ["cfdpDown"]
     EVS_FILE_HDR_SUBTYPE: 16 
-    # DS_TOTAL_FNAME_BUFSIZE: 64
+    #This is obviously discouraged since it breaks the CFE_EVS API, but it has been useful in the past when 
+    #the packet does not adhere to the CFE_EVS_PacketID_t struct for some reason.
+    ignoreSpacecraftID: true  #Only ignores the SpacecraftID in CFE_EVS_PacketID_t and NOT in CFE_FS_Header_t
+    #This is obviously discouraged since it breaks the CFE_EVS API, but it has been useful in the past when 
+    #the packet does not adhere to the CFE_EVS_PacketID_t struct for some reason.
+    ignoreProcessorID: true #Only ignores the ProcessorID in CFE_EVS_PacketID_t and NOT in CFE_FS_Header_t
     csvConfig:
-      mode: REPLACE # APPEND, REPLACE, INACTIVE
+      mode: APPEND # APPEND, REPLACE, INACTIVE
       outputFile: events_dump.csv
-      byteOrder: LITTLE_ENDIAN
-      appNameMax: 40
+      byteOrder: BIG_ENDIAN
+      appNameMax: 10
       eventMsgMax: 122
     packetPreprocessorClassName: org.yamcs.tctm.cfs.CfsPacketPreprocessor
     packetPreprocessorArgs:
-      byteOrder: LITTLE_ENDIAN
+      byteOrder: BIG_ENDIAN
       timestampFormat: CFE_SB_TIME_32_16_SUBS
       timeEncoding:
         useLocalGenerationTime: false

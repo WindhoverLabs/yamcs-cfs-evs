@@ -58,7 +58,6 @@ import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -121,6 +120,8 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   protected boolean deleteFileAfterProcessing;
   protected int EVS_FILE_HDR_SUBTYPE;
   protected int DS_TOTAL_FNAME_BUFSIZE;
+  boolean ignoreSpacecraftID;
+  boolean ignoreProcessorID;
 
   /* Internal member attributes. */
   protected List<FileSystemBucket> buckets;
@@ -172,6 +173,8 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     spec.addOption("eventStream", OptionType.STRING).withRequired(true);
     spec.addOption("EVS_FILE_HDR_SUBTYPE", OptionType.INTEGER).withRequired(true);
     spec.addOption("stream", OptionType.STRING).withRequired(true);
+    spec.addOption("ignoreSpacecraftID", OptionType.BOOLEAN).withRequired(false);
+    spec.addOption("ignoreProcessorID", OptionType.BOOLEAN).withRequired(false);
     //    spec.addOption("initialDelay", OptionType.INTEGER)
     //        .withDefault(INITIAL_DELAY_DEFAULT)
     //        .withRequired(false);
@@ -261,6 +264,9 @@ public class CfsEvsPlugin extends AbstractTmDataLink
         config.getBoolean("clearBucketsAtStartup", CLEAR_BUCKETS_AT_STARTUP_DEFAULT);
     this.deleteFileAfterProcessing =
         config.getBoolean("deleteFileAfterProcessing", DELETE_FILE_AFTER_PROCESSING_DEFAULT);
+
+    this.ignoreSpacecraftID = config.getBoolean("ignoreSpacecraftID", false);
+    this.ignoreProcessorID = config.getBoolean("ignoreProcessorID", false);
 
     /* Create the WatchService from the file system.  We're going to use this later to monitor
      * the files and directories in YAMCS Buckets. */
@@ -565,7 +571,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
                   + "  AppID="
                   + applicationID);
 
-          /* Initialze the packet input stream with the data input stream.  We reinitialize it
+          /* Initialize the packet input stream with the data input stream.  We reinitialize it
            * with every file to ensure the byte stream is at the correct location, immediately
            * after the secondary header. */
           packetInputStream.init(dataInputStream, packetInputStreamArgs);
@@ -739,12 +745,19 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     ByteBuffer buf = ByteBuffer.wrap(packet);
     buf.order(byteOrder);
     buf.position(12);
-    // System.out.println("appNameMax:" + appNameMax);
     String app = decodeString(buf, appNameMax);
+
     int eventId = buf.getShort();
     int eventType = buf.getShort();
-    buf.getInt(); // int spacecraftId = */
-    int processorId = buf.getInt();
+    if (!this.ignoreSpacecraftID) {
+      buf.getInt(); // int spacecraftId = */
+    }
+
+    int processorId = 0;
+    if (!this.ignoreProcessorID) {
+      processorId = buf.getInt();
+    }
+
     String msg = decodeString(buf, eventMsgMax);
 
     EventSeverity evSev;
@@ -789,10 +802,6 @@ public class CfsEvsPlugin extends AbstractTmDataLink
 
   private void writeToCSV(BufferedWriter writer, ArrayList<Event> events) {
     CSVPrinter csvPrinter = null;
-    List<Instant> sortedTimeStamps = null;
-    HashMap<Instant, HashMap<String, Integer>> zeroParamToCountMap = null;
-    HashMap<Instant, HashMap<String, Integer>> paramToCountMap = null;
-    HashMap<Instant, HashMap<String, ParameterValue>> paramToLatestValMap = null;
     ArrayList<String> columnHeaders = new ArrayList<String>();
     try {
       columnHeaders.add("Severity");
@@ -828,6 +837,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
 
     try {
       csvPrinter.flush();
+      csvPrinter.close();
     } catch (IOException e) {
       e.printStackTrace();
     }
