@@ -99,15 +99,15 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     implements Runnable, StreamSubscriber, SystemParametersProducer {
 
   public class CFE_FS_Header_Content {
-    byte[] ContentType = new byte[4];
-    int subType;
-    int length;
-    int spacecraftID;
-    int processorID;
-    int applicationID;
-    int timeSeconds;
-    int timeSubSeconds;
-    byte[] descriptionBytes = new byte[32];
+    public byte[] ContentType = new byte[4];
+    public int subType;
+    public int length;
+    public int spacecraftID;
+    public int processorID;
+    public int applicationID;
+    public int timeSeconds;
+    public int timeSubSeconds;
+    public byte[] descriptionBytes = new byte[32];
   }
   /* Configuration Defaults */
   static long POLLING_PERIOD_DEFAULT = 1000;
@@ -548,7 +548,9 @@ public class CfsEvsPlugin extends AbstractTmDataLink
                   + "  ProcID="
                   + header.processorID
                   + "  AppID="
-                  + header.applicationID);
+                  + header.applicationID
+                  + " Description="
+                  + description);
 
           /* Initialize the packet input stream with the data input stream.  We reinitialize it
            * with every file to ensure the byte stream is at the correct location, immediately
