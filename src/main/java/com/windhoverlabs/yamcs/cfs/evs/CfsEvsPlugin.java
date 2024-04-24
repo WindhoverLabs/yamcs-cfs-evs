@@ -122,9 +122,11 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   protected int DS_TOTAL_FNAME_BUFSIZE;
   boolean ignoreSpacecraftID;
   boolean ignoreProcessorID;
+  private String outputFile;
 
   /* Internal member attributes. */
   protected List<FileSystemBucket> buckets;
+  protected FileSystemBucket csvBucket;
   protected YConfiguration packetInputStreamArgs;
   protected PacketInputStream packetInputStream;
   protected WatchService watcher;
@@ -154,8 +156,6 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   public void setMode(EvsCSVMode mode) {
     this.mode = mode;
   }
-
-  private String outputFile;
 
   Integer appNameMax;
   Integer eventMsgMax;
@@ -203,10 +203,11 @@ public class CfsEvsPlugin extends AbstractTmDataLink
         .withSpec(preprocessorSpec);
 
     csvConfigSpec.addOption("mode", OptionType.STRING).withRequired(true);
-    csvConfigSpec.addOption("outputFile", OptionType.STRING).withRequired(true);
+    csvConfigSpec.addOption("csvBucket", OptionType.STRING).withRequired(true);
     csvConfigSpec.addOption("byteOrder", OptionType.STRING).withRequired(true);
     csvConfigSpec.addOption("appNameMax", OptionType.INTEGER).withRequired(true);
     csvConfigSpec.addOption("eventMsgMax", OptionType.INTEGER).withRequired(true);
+    csvConfigSpec.addOption("outputFile", OptionType.STRING).withRequired(true);
     spec.addOption("csvConfig", OptionType.MAP).withRequired(true).withSpec(csvConfigSpec);
 
     return spec;
@@ -219,6 +220,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     /* Local variables */
     String packetInputStreamClassName;
     List<String> bucketNames;
+    String csvBucketName;
     this.config = config;
     /* Calidate the configuration that the user passed us. */
     try {
@@ -238,6 +240,7 @@ public class CfsEvsPlugin extends AbstractTmDataLink
 
     mode = getMode(csvConfig);
     outputFile = csvConfig.getString("outputFile");
+    csvBucketName = csvConfig.getString("csvBucket");
 
     byteOrder = AbstractPacketPreprocessor.getByteOrder(csvConfig);
 
@@ -341,6 +344,14 @@ public class CfsEvsPlugin extends AbstractTmDataLink
               + chrname
               + "'. Please use one of "
               + Charset.availableCharsets().keySet());
+    }
+
+    YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
+    try {
+      csvBucket = (FileSystemBucket) yarch.getBucket(csvBucketName);
+    } catch (IOException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
     }
   }
 
@@ -599,22 +610,30 @@ public class CfsEvsPlugin extends AbstractTmDataLink
 
           switch (mode) {
             case APPEND:
-              if (outputFile != null) {
+              if (csvBucket != null && outputFile != null) {
                 writer =
                     Files.newBufferedWriter(
-                        Paths.get(outputFile),
+                        Paths.get(
+                            csvBucket.getBucketRoot().toAbsolutePath().toString(), outputFile),
                         StandardOpenOption.CREATE,
                         StandardOpenOption.APPEND);
-              } else writer = null;
+              } else {
+                writer = null;
+              }
 
               writeToCSV(writer, csvEvents);
               break;
             case INACTIVE:
               break;
             case REPLACE:
-              if (outputFile != null) {
-                writer = Files.newBufferedWriter(Paths.get(outputFile));
-              } else writer = null;
+              if (csvBucket != null && outputFile != null) {
+                writer =
+                    Files.newBufferedWriter(
+                        Paths.get(
+                            csvBucket.getBucketRoot().toAbsolutePath().toString(), outputFile));
+              } else {
+                writer = null;
+              }
 
               writeToCSV(writer, csvEvents);
               break;

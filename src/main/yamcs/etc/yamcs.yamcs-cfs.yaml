@@ -55,7 +55,8 @@ dataLinks:
     ignoreProcessorID: true #Only ignores the ProcessorID in CFE_EVS_PacketID_t and NOT in CFE_FS_Header_t
     csvConfig:
       mode: APPEND # APPEND, REPLACE, INACTIVE
-      outputFile: events_dump.csv
+      csvBucket: cfdpDown
+      outputFile: "events_dump.csv"
       byteOrder: BIG_ENDIAN
       appNameMax: 10
       eventMsgMax: 122
