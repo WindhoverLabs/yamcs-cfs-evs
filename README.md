@@ -38,19 +38,20 @@ This plugin functions as a YAMCS Telemetry Provider and will appear as a Datalin
 "com.windhoverlabs.yamcs.cfs.evs.CfsEvsPlugin" plugin to the "dataLinks" section of the YAMCS instance configuration. 
 For example:
 ```yaml
-dataLinks:   
+dataLinks:
   - name: evs-logs
     class: com.windhoverlabs.yamcs.cfs.evs.CfsEvsPlugin
     eventStream: events_realtime
     stream: tm_realtime
     buckets: ["cfdpDown"]
-    EVS_FILE_HDR_SUBTYPE: 16 
+    EVS_FILE_HDR_SUBTYPE: 16
     #This is obviously discouraged since it breaks the CFE_EVS API, but it has been useful in the past when 
     #the packet does not adhere to the CFE_EVS_PacketID_t struct for some reason.
     ignoreSpacecraftID: true  #Only ignores the SpacecraftID in CFE_EVS_PacketID_t and NOT in CFE_FS_Header_t
     #This is obviously discouraged since it breaks the CFE_EVS API, but it has been useful in the past when 
     #the packet does not adhere to the CFE_EVS_PacketID_t struct for some reason.
     ignoreProcessorID: true #Only ignores the ProcessorID in CFE_EVS_PacketID_t and NOT in CFE_FS_Header_t
+    deleteFileAfterProcessing: true
     csvConfig:
       mode: APPEND # APPEND, REPLACE, INACTIVE
       csvBucket: cfdpDown
