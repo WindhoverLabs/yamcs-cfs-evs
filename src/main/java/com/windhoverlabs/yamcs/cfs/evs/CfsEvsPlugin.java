@@ -175,23 +175,24 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     spec.addOption("stream", OptionType.STRING).withRequired(true);
     spec.addOption("ignoreSpacecraftID", OptionType.BOOLEAN).withRequired(false);
     spec.addOption("ignoreProcessorID", OptionType.BOOLEAN).withRequired(false);
-    //    spec.addOption("initialDelay", OptionType.INTEGER)
-    //        .withDefault(INITIAL_DELAY_DEFAULT)
-    //        .withRequired(false);
-    //    spec.addOption("pollingPeriod", OptionType.INTEGER)
-    //        .withDefault(POLLING_PERIOD_DEFAULT)
-    //        .withRequired(false);
-    //    spec.addOption("ignoreInitial", OptionType.BOOLEAN)
-    //        .withDefault(IGNORE_INITIAL_DEFAULT)
-    //        .withRequired(false);
-    //    spec.addOption("deleteFileAfterProcessing", OptionType.BOOLEAN)
-    //        .withDefault(DELETE_FILE_AFTER_PROCESSING_DEFAULT)
-    //        .withRequired(false);
-    //    spec.addOption("clearBucketsAtStartup", OptionType.BOOLEAN)
-    //        .withDefault(CLEAR_BUCKETS_AT_STARTUP_DEFAULT)
-    //        .withRequired(false);
-    spec.addOption("buckets", OptionType.LIST_OR_ELEMENT).withElementType(OptionType.STRING);
-    //        .withRequired(true);
+    spec.addOption("initialDelay", OptionType.INTEGER)
+        .withDefault(INITIAL_DELAY_DEFAULT)
+        .withRequired(false);
+    spec.addOption("pollingPeriod", OptionType.INTEGER)
+        .withDefault(POLLING_PERIOD_DEFAULT)
+        .withRequired(false);
+    spec.addOption("ignoreInitial", OptionType.BOOLEAN)
+        .withDefault(IGNORE_INITIAL_DEFAULT)
+        .withRequired(false);
+    spec.addOption("deleteFileAfterProcessing", OptionType.BOOLEAN)
+        .withDefault(DELETE_FILE_AFTER_PROCESSING_DEFAULT)
+        .withRequired(false);
+    spec.addOption("clearBucketsAtStartup", OptionType.BOOLEAN)
+        .withDefault(CLEAR_BUCKETS_AT_STARTUP_DEFAULT)
+        .withRequired(false);
+    spec.addOption("buckets", OptionType.LIST_OR_ELEMENT)
+        .withElementType(OptionType.STRING)
+        .withRequired(true);
     spec.addOption("packetInputStreamClassName", OptionType.STRING).withRequired(false);
     spec.addOption("packetPreprocessorClassName", OptionType.STRING).withRequired(true);
     /* Set the preprocessor argument config parameters to "allowUnknownKeys".  We don't know
@@ -261,12 +262,11 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     bucketNames = config.getList("buckets");
     this.EVS_FILE_HDR_SUBTYPE = config.getInt("EVS_FILE_HDR_SUBTYPE");
     this.initialDelay = config.getLong("initialDelay", INITIAL_DELAY_DEFAULT);
-    this.period = config.getLong("pollingPeriod", POLLING_PERIOD_DEFAULT);
-    this.ignoreInitial = config.getBoolean("ignoreInitial", IGNORE_INITIAL_DEFAULT);
+    this.period = config.getLong("pollingPeriod");
+    this.ignoreInitial = config.getBoolean("ignoreInitial");
     this.clearBucketsAtStartup =
         config.getBoolean("clearBucketsAtStartup", CLEAR_BUCKETS_AT_STARTUP_DEFAULT);
-    this.deleteFileAfterProcessing =
-        config.getBoolean("deleteFileAfterProcessing", DELETE_FILE_AFTER_PROCESSING_DEFAULT);
+    this.deleteFileAfterProcessing = config.getBoolean("deleteFileAfterProcessing");
 
     this.ignoreSpacecraftID = config.getBoolean("ignoreSpacecraftID", false);
     this.ignoreProcessorID = config.getBoolean("ignoreProcessorID", false);
