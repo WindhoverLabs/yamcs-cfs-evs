@@ -721,12 +721,10 @@ public class CfsEvsPlugin extends AbstractTmDataLink
   }
 
   @Override
-  public List<ParameterValue> getSystemParameters() {
-    long time = getCurrentTime();
-
+  public List<ParameterValue> getSystemParameters(long gentime) {
     ArrayList<ParameterValue> list = new ArrayList<>();
     try {
-      collectSystemParameters(time, list);
+      collectSystemParameters(gentime, list);
     } catch (Exception e) {
       log.error("Exception caught when collecting link system parameters", e);
     }
