@@ -72,6 +72,8 @@ import org.yamcs.TmPacket;
 import org.yamcs.ValidationException;
 import org.yamcs.YConfiguration;
 import org.yamcs.YamcsServer;
+import org.yamcs.buckets.FileSystemBucket;
+import org.yamcs.buckets.ObjectProperties;
 import org.yamcs.parameter.ParameterValue;
 import org.yamcs.parameter.SystemParametersProducer;
 import org.yamcs.parameter.SystemParametersService;
@@ -86,14 +88,11 @@ import org.yamcs.tctm.PacketTooLongException;
 import org.yamcs.utils.FileUtils;
 import org.yamcs.utils.YObjectLoader;
 import org.yamcs.xtce.Parameter;
-import org.yamcs.yarch.FileSystemBucket;
 import org.yamcs.yarch.Stream;
 import org.yamcs.yarch.StreamSubscriber;
 import org.yamcs.yarch.Tuple;
 import org.yamcs.yarch.YarchDatabase;
-import org.yamcs.yarch.YarchDatabaseInstance;
 import org.yamcs.yarch.protobuf.Db.Event;
-import org.yamcs.yarch.rocksdb.protobuf.Tablespace.ObjectProperties;
 
 public class CfsEvsPlugin extends AbstractTmDataLink
     implements Runnable, StreamSubscriber, SystemParametersProducer {
@@ -283,11 +282,9 @@ public class CfsEvsPlugin extends AbstractTmDataLink
     to add the buckets
         * to our internal list so we can process them later. */
     for (String bucketName : bucketNames) {
-      YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
-
       try {
         FileSystemBucket bucket;
-        bucket = (FileSystemBucket) yarch.getBucket(bucketName);
+        bucket = (FileSystemBucket) YamcsServer.getServer().getBucketManager().getBucket(bucketName);
         buckets.add(bucket);
       } catch (IOException e) {
         e.printStackTrace();
@@ -346,9 +343,8 @@ public class CfsEvsPlugin extends AbstractTmDataLink
               + Charset.availableCharsets().keySet());
     }
 
-    YarchDatabaseInstance yarch = YarchDatabase.getInstance(YamcsServer.GLOBAL_INSTANCE);
     try {
-      csvBucket = (FileSystemBucket) yarch.getBucket(csvBucketName);
+      csvBucket = (FileSystemBucket) YamcsServer.getServer().getBucketManager().getBucket(csvBucketName);
     } catch (IOException e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
@@ -421,13 +417,13 @@ public class CfsEvsPlugin extends AbstractTmDataLink
       for (FileSystemBucket bucket : buckets) {
         try {
           /* Get the contents of the bucket. */
-          List<ObjectProperties> fileOjects = bucket.listObjects();
+          List<ObjectProperties> fileOjects = bucket.listObjects(null, o -> true);
 
           /* Iterate through the objects, which should be files and directories. */
           for (ObjectProperties fileObject : fileOjects) {
             /* Get the full absolute path to the file/directory. */
             Path fullPath =
-                Paths.get(bucket.getBucketRoot().toString(), fileObject.getName()).toAbsolutePath();
+                Paths.get(bucket.getBucketRoot().toString(), fileObject.name()).toAbsolutePath();
 
             /* Is this a file? */
             if (Files.isRegularFile(fullPath)) {
